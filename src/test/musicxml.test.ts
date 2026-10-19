@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   intervalFromTranspose,
   parseScore,
+  ScoreError,
   readParts,
   serializeScore,
   toConcert,
@@ -95,8 +96,25 @@ describe('readParts', () => {
     ]);
   });
 
-  it('rejects score-timewise files', () => {
+  it('rejects score-timewise files, naming the format that is supported', () => {
     expect(() => parseScore('<score-timewise version="4.0"></score-timewise>')).toThrow(/partwise/);
+    try {
+      parseScore('<score-timewise version="4.0"></score-timewise>');
+    } catch (e) {
+      expect((e as ScoreError).code).toBe('not-partwise');
+    }
+  });
+
+  it('rejects text and other XML as "not a score"', () => {
+    for (const input of ['hello, not a score', '', '<html><body/></html>']) {
+      let code: string | undefined;
+      try {
+        parseScore(input);
+      } catch (e) {
+        code = (e as ScoreError).code;
+      }
+      expect(code, JSON.stringify(input)).toBe('not-score');
+    }
   });
 });
 

@@ -32,6 +32,12 @@ export function keyTable(source: MusicalKey, direction: Direction, options: KeyT
   });
 }
 
+/** Compact form for tiles and pills: "3♯", "2♭", or "—" for none. */
+export function shortSignature(accidentals: number): string {
+  if (accidentals === 0) return '—';
+  return accidentals > 0 ? `${accidentals}♯` : `${-accidentals}♭`;
+}
+
 /** "3♯", "2♭", or "No sharps or flats". */
 export function formatKeySignature(accidentals: number): string {
   if (accidentals === 0) return 'No sharps or flats';

@@ -50,12 +50,32 @@ function setChildText(doc: Document, el: El, name: string, value: string): void 
 
 // ---------- Parsing and serializing ----------
 
-export function parseScore(xml: string): Document {
-  const doc = new DOMParser().parseFromString(xml, 'text/xml');
-  const root = doc.documentElement;
-  if (!root || root.tagName !== 'score-partwise') {
-    throw new Error('Only score-partwise MusicXML is supported. Export the score as "partwise" from your notation software.');
+/** Why a file could not be read as a score, so the screen can explain it in the user's language. */
+export type ScoreErrorCode = 'not-score' | 'not-partwise';
+
+export class ScoreError extends Error {
+  constructor(
+    readonly code: ScoreErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ScoreError';
   }
+}
+
+export function parseScore(xml: string): Document {
+  let doc: ReturnType<DOMParser['parseFromString']>;
+  try {
+    doc = new DOMParser().parseFromString(xml, 'text/xml');
+  } catch {
+    throw new ScoreError('not-score', 'This file is not a MusicXML score.');
+  }
+  const root = doc.documentElement;
+  if (!root) throw new ScoreError('not-score', 'This file is not a MusicXML score.');
+  if (root.tagName === 'score-timewise') {
+    throw new ScoreError('not-partwise', 'Only score-partwise MusicXML is supported. Export the score as "partwise" from your notation software.');
+  }
+  if (root.tagName !== 'score-partwise') throw new ScoreError('not-score', 'This file is not a MusicXML score.');
   return doc as unknown as Document;
 }
 

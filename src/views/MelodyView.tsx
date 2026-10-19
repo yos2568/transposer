@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { playMelody, type PlaybackHandle } from '../audio/player';
-import { INSTRUMENTS, getInstrument } from '../core/instruments';
+import { formatPitch } from '../core/format';
+import { getInstrument } from '../core/instruments';
 import {
   DURATIONS,
   playbackSeconds,
@@ -11,17 +12,17 @@ import {
 } from '../core/melody';
 import { checkWrittenRange } from '../core/range';
 import type { Direction, Pitch } from '../core/types';
-import { Piano } from '../input/Piano';
-import { MelodyStaff, type AccidentalChoice } from '../render/MelodyStaff';
 import { useI18n } from '../i18n/context';
-import { FAMILY_KEY } from '../i18n/messages';
 import { DUR_KEY } from '../i18n/messages';
+import { pillText, signedIntervalCode } from '../i18n/transposition';
+import { InstrumentPicker } from '../input/InstrumentPicker';
+import { PianoDock } from '../input/PianoDock';
+import { MelodyStaff, type AccidentalChoice } from '../render/MelodyStaff';
+import './melody.css';
 
-const ACCIDENTAL_LABEL: Record<AccidentalChoice, string> = { '': '♮', '#': '♯', b: '♭' };
-
-/** Melody mode: build a line on the staff, see it in written and concert pitch, and hear the concert version. */
+/** Melody mode: build a line on the staff or piano, see it written and in concert pitch, and hear it. */
 export function MelodyView() {
-  const { t, instrumentName } = useI18n();
+  const { t, lang, instrumentName } = useI18n();
   const [instrumentId, setInstrumentId] = useState('clarinet-bb');
   const [direction, setDirection] = useState<Direction>('writtenToConcert');
   const [events, setEvents] = useState<MelodyEvent[]>([]);
@@ -30,17 +31,20 @@ export function MelodyView() {
   const [accidental, setAccidental] = useState<AccidentalChoice>('');
   const [bpm, setBpm] = useState(100);
   const [playing, setPlaying] = useState(false);
+  const [playIndex, setPlayIndex] = useState<number | null>(null);
   const playerRef = useRef<PlaybackHandle | null>(null);
 
   const instrument = getInstrument(instrumentId);
+  const enteringWritten = direction === 'writtenToConcert';
+  const tone = enteringWritten ? 'written' : 'concert';
 
   // Events are stored in the entry domain; the other domain is derived.
   const { written, concert } = useMemo(() => {
-    if (direction === 'writtenToConcert') {
+    if (enteringWritten) {
       return { written: events, concert: transposeEvents(events, instrument, 'writtenToConcert') };
     }
     return { written: transposeEvents(events, instrument, 'concertToWritten'), concert: events };
-  }, [events, direction, instrument]);
+  }, [events, enteringWritten, instrument]);
 
   const outOfRange = useMemo(() => {
     const found: Pitch[] = [];
@@ -57,6 +61,7 @@ export function MelodyView() {
     playerRef.current?.stop();
     playerRef.current = null;
     setPlaying(false);
+    setPlayIndex(null);
   }, []);
 
   // Stop playback when the melody or instrument changes, and when leaving the view.
@@ -77,8 +82,6 @@ export function MelodyView() {
     setEvents((prev) => [...prev, { pitches: [], duration }]);
   };
 
-  const undo = () => setEvents((prev) => prev.slice(0, -1));
-
   const clearAll = () => {
     stopPlayback();
     setEvents([]);
@@ -91,163 +94,166 @@ export function MelodyView() {
       return;
     }
     if (concert.length === 0) return;
-    const handle = playMelody(concert, bpm, () => {
-      playerRef.current = null;
-      setPlaying(false);
-    });
+    const handle = playMelody(
+      concert,
+      bpm,
+      () => {
+        playerRef.current = null;
+        setPlaying(false);
+        setPlayIndex(null);
+      },
+      setPlayIndex,
+    );
     if (handle) {
       playerRef.current = handle;
       setPlaying(true);
     }
   };
 
-  const groups = INSTRUMENTS.reduce<Record<string, typeof INSTRUMENTS>>((acc, inst) => {
-    (acc[inst.family] ??= []).push(inst);
-    return acc;
-  }, {});
-
-  const enteringWritten = direction === 'writtenToConcert';
   const beats = totalBeats(events);
   const seconds = playbackSeconds(events, bpm);
+  const code = signedIntervalCode(instrument.transposition);
+  const pill = pillText(instrument.transposition, lang, t);
+  const hint = t('melodyStaffHint');
 
   return (
-    <div className="layout">
-      <aside className="card">
-        <div className="field">
-          <label htmlFor="melody-instrument">{t('instrument')}</label>
-          <select id="melody-instrument" value={instrumentId} onChange={(e) => setInstrumentId(e.target.value)}>
-            {Object.entries(groups).map(([family, list]) => (
-              <optgroup key={family} label={t(FAMILY_KEY[family] ?? 'famOther')}>
-                {list.map((i) => (
-                  <option key={i.id} value={i.id}>
-                    {instrumentName(i)}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </div>
+    <>
+      <main className="page melody-page">
+        <section className="panel control-strip">
+          <div className="control-row">
+            <div className="control-left">
+              <InstrumentPicker compact value={instrument} onChange={(i) => setInstrumentId(i.id)} />
+              <div className="seg2 seg2-inline" role="group" aria-label={t('enteringLabel')}>
+                <button type="button" className="tone-written" aria-pressed={enteringWritten} onClick={() => setDirection('writtenToConcert')}>
+                  {t('written')}
+                </button>
+                <button type="button" className="tone-concert" aria-pressed={!enteringWritten} onClick={() => setDirection('concertToWritten')}>
+                  {t('concert')}
+                </button>
+              </div>
+            </div>
 
-        <div className="field">
-          <span className="field-label" id="melody-direction-label">{t('enteringLabel')}</span>
-          <div className="segmented" role="radiogroup" aria-labelledby="melody-direction-label">
-            <label>
-              <input
-                type="radio"
-                name="melody-direction"
-                checked={enteringWritten}
-                onChange={() => setDirection('writtenToConcert')}
-              />
-              {t('written')}
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="melody-direction"
-                checked={!enteringWritten}
-                onChange={() => setDirection('concertToWritten')}
-              />
-              {t('concert')}
-            </label>
-          </div>
-          <p className="hint">{t('melodyClickHint', { side: enteringWritten ? t('sideWritten') : t('sideConcert') })}</p>
-        </div>
-
-        <div className="field">
-          <span className="field-label" id="duration-label">{t('duration')}</span>
-          <div className="segmented five" role="radiogroup" aria-labelledby="duration-label">
-            {DURATIONS.map((d) => (
-              <label key={d} title={t(DUR_KEY[d])}>
-                <input type="radio" name="duration" checked={duration === d} onChange={() => setDuration(d)} />
-                {t(DUR_KEY[d])}
+            <div className="control-right">
+              <label className="tempo-control">
+                <span className="tempo-value">{t('bpmValue', { bpm })}</span>
+                <input
+                  type="range"
+                  min={40}
+                  max={180}
+                  value={bpm}
+                  aria-label={t('tempo', { bpm })}
+                  onChange={(e) => setBpm(Number(e.target.value))}
+                />
               </label>
-            ))}
+              <span className="mono-muted">{events.length > 0 ? t('seconds', { s: seconds.toFixed(1) }) : ''}</span>
+              <button type="button" className="play-main" aria-pressed={playing} disabled={events.length === 0} onClick={togglePlay}>
+                <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true">
+                  {playing ? <rect x="3" y="3" width="10" height="10" rx="1.5" fill="currentColor" /> : <path d="M4 2.5v11l9-5.5z" fill="currentColor" />}
+                </svg>
+                {playing ? t('stop') : t('playConcert')}
+              </button>
+            </div>
           </div>
-        </div>
 
-        <div className="field">
-          <span className="field-label" id="accidental-label">{t('staffAccidental')}</span>
-          <div className="segmented three" role="radiogroup" aria-labelledby="accidental-label">
-            {(['', '#', 'b'] as AccidentalChoice[]).map((a) => (
-              <label key={a || 'natural'}>
-                <input type="radio" name="accidental" checked={accidental === a} onChange={() => setAccidental(a)} />
-                {ACCIDENTAL_LABEL[a]}
-              </label>
-            ))}
-          </div>
-        </div>
+          <div className="control-divider" />
 
-        <Piano onAdd={addPitch} />
-      </aside>
+          <div className="control-row entry-row">
+            <div className="control-left">
+              <div className="field-group">
+                <span className="field-cap" id="duration-cap">{t('duration')}</span>
+                <div className="dur-group" role="group" aria-labelledby="duration-cap">
+                  {DURATIONS.map((d) => (
+                    <button key={d} type="button" className="dur-btn" aria-pressed={duration === d} onClick={() => setDuration(d)}>
+                      <NoteGlyph duration={d} />
+                      <span>{t(DUR_KEY[d])}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-      <section className="main">
-        <div className="card">
-          {/* Always rendered, so adding the first pitch does not move the staves below. */}
-          <div className="chips">
-            {pending.length === 0 ? (
-              <span className="empty">{t('melodyEmpty')}</span>
-            ) : (
-              pending.map((p) => (
-                <span className="chip" key={p}>
-                  {p}
-                  <button
-                    type="button"
-                    onClick={() => setPending((prev) => prev.filter((x) => x !== p))}
-                    aria-label={t('removeNote', { pitch: p })}
-                  >
-                    ×
+              <div className="field-group">
+                <span className="field-cap" id="accidental-cap">{t('accidentalLabel')}</span>
+                <div className="acc-group" role="group" aria-labelledby="accidental-cap">
+                  <button type="button" aria-label={t('accNatural')} aria-pressed={accidental === ''} onClick={() => setAccidental('')}>
+                    ♮
                   </button>
-                </span>
-              ))
-            )}
-          </div>
+                  <button type="button" aria-label={t('accSharp')} aria-pressed={accidental === '#'} onClick={() => setAccidental('#')}>
+                    ♯
+                  </button>
+                  <button type="button" aria-label={t('accFlat')} aria-pressed={accidental === 'b'} onClick={() => setAccidental('b')}>
+                    ♭
+                  </button>
+                </div>
+              </div>
 
-          <div className="actions">
-            <button type="button" className="btn primary" onClick={commitNote} disabled={pending.length === 0}>
-              {t('addNote', { duration: t(DUR_KEY[duration]) })}
-            </button>
-            <button type="button" className="btn" onClick={addRest}>
-              {t('addRest')}
-            </button>
-            <button type="button" className="btn" onClick={undo} disabled={events.length === 0}>
-              {t('undo')}
-            </button>
-            <button type="button" className="btn" onClick={clearAll} disabled={events.length === 0 && pending.length === 0}>
-              {t('clearAll')}
-            </button>
-          </div>
+              <div className="field-group">
+                <span className="field-cap">{t('nextNote')}</span>
+                <div className={`next-note ${tone}`}>
+                  {pending.length === 0 ? (
+                    <span className="next-note-hint">{t('melodyEmpty')}</span>
+                  ) : (
+                    pending.map((p) => (
+                      <span key={p} className={`note-chip ${enteringWritten ? '' : 'concert'}`}>
+                        <span className="pitch">{formatPitch(p)}</span>
+                        <button
+                          type="button"
+                          aria-label={t('removeNote', { pitch: formatPitch(p) })}
+                          onClick={() => setPending((prev) => prev.filter((x) => x !== p))}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))
+                  )}
+                  <button type="button" className="primary-btn" disabled={pending.length === 0} onClick={commitNote}>
+                    {t('addNote', { duration: t(DUR_KEY[duration]).toLowerCase() })}
+                  </button>
+                  <button type="button" className="ghost-btn" onClick={addRest}>
+                    {t('addRest')}
+                  </button>
+                </div>
+              </div>
+            </div>
 
-          <p className="muted">
-            {t('melodyCount', { n: events.length, beats })}
+            <div className="control-right">
+              {events.length > 0 && <span className="entry-count">{t('melodyCount', { n: events.length, beats })}</span>}
+              <button type="button" className="ghost-btn" disabled={events.length === 0} onClick={() => setEvents((prev) => prev.slice(0, -1))}>
+                {t('undo')}
+              </button>
+              <button type="button" className="ghost-btn" disabled={events.length === 0 && pending.length === 0} onClick={clearAll}>
+                {t('clearAll')}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {outOfRange.length > 0 && (
+          <p className="status warn range-warning" role="alert">
+            <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+              <path d="M9 2.5l7 12.5H2z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+              <path d="M9 7.5v3M9 12.6v.1" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+            </svg>
+            {t('outOfRange', {
+              name: instrumentName(instrument),
+              low: formatPitch(instrument.writtenRange?.low ?? ''),
+              high: formatPitch(instrument.writtenRange?.high ?? ''),
+              list: outOfRange.map(formatPitch).join(', '),
+            })}
           </p>
+        )}
 
-          {outOfRange.length > 0 && (
-            <p className="warning" role="alert">
-              {t('outOfRange', { name: instrumentName(instrument), low: instrument.writtenRange?.low ?? '', high: instrument.writtenRange?.high ?? '', list: outOfRange.join(', ') })}
-            </p>
-          )}
-          {instrument.writtenRange === null && events.length > 0 && (
-            <p className="muted">{t('noRangeDefined')}</p>
-          )}
-        </div>
-
-        <div className="card transport">
-          <button type="button" className={`btn ${playing ? '' : 'primary'}`} onClick={togglePlay} disabled={events.length === 0}>
-            {playing ? t('stop') : t('playConcert')}
-          </button>
-          <label className="tempo">
-            {t('tempo', { bpm })}
-            <input type="range" min={40} max={180} value={bpm} onChange={(e) => setBpm(Number(e.target.value))} />
-          </label>
-          <span className="muted">{events.length > 0 ? t('seconds', { s: seconds.toFixed(1) }) : ''}</span>
-        </div>
-
-        <div className="score">
-          <div className="score-head">
-            <span className="badge written">{t('writtenBadge')}</span>
-            <span className="score-sub">{instrumentName(instrument)}</span>
+        <div className="staff-card">
+          <div className="staff-card-head">
+            <div className="staff-card-title">
+              <span className="badge written">{t('writtenBadge')}</span>
+              <span className="staff-card-sub">
+                {t('writtenAsPrinted', { name: instrumentName(instrument) })}
+                {enteringWritten ? ` · ${hint}` : ''}
+              </span>
+            </div>
           </div>
           <MelodyStaff
+            tone="written"
             events={written}
             label={t('writtenMelodyLabel', { n: written.length })}
             onPick={enteringWritten ? addPitch : undefined}
@@ -255,19 +261,66 @@ export function MelodyView() {
           />
         </div>
 
-        <div className="score">
-          <div className="score-head">
-            <span className="badge concert">{t('concertBadge')}</span>
-            <span className="score-sub">{t('whatSounds')}</span>
+        <div className="connector">
+          <div className="connector-line" />
+          <div className="connector-pill">
+            <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+              <path d="M9 3v11M4.5 10l4.5 4.5L13.5 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span className="interval-code">{code}</span>
+            <span className="connector-text">{t('everyNote', { text: pill })}</span>
+          </div>
+          <div className="connector-line" />
+        </div>
+
+        <div className="staff-card">
+          <div className="staff-card-head">
+            <div className="staff-card-title">
+              <span className="badge concert">{t('concertBadge')}</span>
+              <span className="staff-card-sub">{enteringWritten ? t('audienceHearsPlayhead') : `${t('audienceHears')} · ${hint}`}</span>
+            </div>
           </div>
           <MelodyStaff
+            tone="concert"
             events={concert}
             label={t('concertMelodyLabel', { n: concert.length })}
             onPick={enteringWritten ? undefined : addPitch}
             accidental={accidental}
+            playhead={playIndex}
           />
         </div>
-      </section>
-    </div>
+      </main>
+
+      <PianoDock compact pressed={pending} tone={tone} hint={t('tapKeyHintChord')} onPick={addPitch} />
+    </>
+  );
+}
+
+/** The note shape on each duration button. */
+function NoteGlyph({ duration }: { duration: Duration }) {
+  const props = { width: 28, height: 28, viewBox: '0 0 28 28', 'aria-hidden': true } as const;
+  if (duration === 'w') {
+    return (
+      <svg {...props}>
+        <ellipse cx="14" cy="14" rx="8" ry="5.4" fill="none" stroke="currentColor" strokeWidth="2.4" transform="rotate(-18 14 14)" />
+      </svg>
+    );
+  }
+  const hollow = duration === 'h';
+  const flags = duration === 'e' ? 'M15.4 4c4 1.4 6.4 4.4 5.2 9' : duration === 's' ? 'M15.4 4c4 1.4 6.4 4.4 5.2 9M15.4 10c4 1.4 6.4 4.4 5.2 9' : '';
+  return (
+    <svg {...props}>
+      <ellipse
+        cx="10"
+        cy="21"
+        rx="6"
+        ry="4.2"
+        transform="rotate(-18 10 21)"
+        fill={hollow ? 'none' : 'currentColor'}
+        stroke={hollow ? 'currentColor' : 'none'}
+        strokeWidth="2.2"
+      />
+      <path d={`M15.4 19.6V4${flags}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
   );
 }

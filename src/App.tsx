@@ -1,196 +1,105 @@
-import { useMemo, useState } from 'react';
-import { INSTRUMENTS, getInstrument } from './core/instruments';
-import { checkWrittenRange } from './core/range';
-import { concertToWritten, writtenToConcert } from './core/transpose';
-import type { Direction, Instrument, Pitch } from './core/types';
-import { Piano } from './input/Piano';
-import { GrandStaff } from './render/GrandStaff';
+import { useState, type ReactNode } from 'react';
+import { useI18n } from './i18n/context';
+import type { MessageKey } from './i18n/messages';
 import { KeysView } from './views/KeysView';
 import { MelodyView } from './views/MelodyView';
+import { NotesView } from './views/NotesView';
 import { ScoreView } from './views/ScoreView';
-import { useI18n } from './i18n/context';
-import { FAMILY_KEY } from './i18n/messages';
 
 type View = 'notes' | 'keys' | 'melody' | 'score';
 
+const ICON_PROPS = { className: 'tab-icon', width: 22, height: 22, viewBox: '0 0 22 22', 'aria-hidden': true } as const;
+
+const TABS: Array<{ id: View; label: MessageKey; icon: ReactNode }> = [
+  {
+    id: 'notes',
+    label: 'tabNotes',
+    icon: (
+      <svg {...ICON_PROPS}>
+        <path d="M3 6H19M3 10H19M3 14H19M3 18H19" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <circle cx="9" cy="14" r="2.4" fill="currentColor" />
+      </svg>
+    ),
+  },
+  {
+    id: 'keys',
+    label: 'tabKeys',
+    icon: (
+      <svg {...ICON_PROPS}>
+        <circle cx="11" cy="11" r="8" fill="none" stroke="currentColor" strokeWidth="1.6" />
+        <path d="M11 3v8l5 3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    id: 'melody',
+    label: 'tabMelody',
+    icon: (
+      <svg {...ICON_PROPS}>
+        <ellipse cx="7.5" cy="16" rx="3.6" ry="2.6" fill="currentColor" transform="rotate(-18 7.5 16)" />
+        <path d="M10.6 15V4l7 2v9" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        <ellipse cx="14.5" cy="15" rx="3.2" ry="2.4" fill="currentColor" transform="rotate(-18 14.5 15)" />
+      </svg>
+    ),
+  },
+  {
+    id: 'score',
+    label: 'tabScore',
+    icon: (
+      <svg {...ICON_PROPS}>
+        <path d="M6 3h7l4 4v12H6z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+        <path d="M13 3v4h4M9 12h6M9 15.5h6" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+];
+
 export function App() {
-  const [instrumentId, setInstrumentId] = useState('clarinet-bb');
-  const [direction, setDirection] = useState<Direction>('writtenToConcert');
-  const [entered, setEntered] = useState<Pitch[]>([]);
   const [view, setView] = useState<View>('notes');
-  const { t, lang, setLang, instrumentName } = useI18n();
-
-  const instrument = getInstrument(instrumentId);
-
-  // Entered pitches are either written or concert, depending on direction.
-  const { written, concert } = useMemo(() => {
-    const convert = direction === 'writtenToConcert' ? writtenToConcert : concertToWritten;
-    const other = entered.map((p) => convert(p, instrument));
-    return direction === 'writtenToConcert'
-      ? { written: entered, concert: other }
-      : { written: other, concert: entered };
-  }, [entered, direction, instrument]);
-
-  const warnings = written
-    .map((p) => ({ pitch: p, status: checkWrittenRange(p, instrument) }))
-    .filter((w) => w.status === 'below' || w.status === 'above');
-
-  const groups = INSTRUMENTS.reduce<Record<string, Instrument[]>>((acc, inst) => {
-    (acc[inst.family] ??= []).push(inst);
-    return acc;
-  }, {});
-
-  const addPitch = (pitch: Pitch) => setEntered((prev) => [...prev, pitch]);
-  const removeAt = (index: number) => setEntered((prev) => prev.filter((_, i) => i !== index));
+  const { t, lang, setLang } = useI18n();
 
   return (
     <div className="app">
-      <header className="header">
-        <div>
-          <h1>Transposer</h1>
-          <p className="tagline">{t('tagline')}</p>
+      <header className="topbar">
+        <div className="topbar-left">
+          <button type="button" className="brand" title={t('tagline')} onClick={() => setView('notes')}>
+            <svg width="36" height="36" viewBox="0 0 36 36" aria-hidden="true">
+              <rect width="36" height="36" rx="10" fill="#171d29" />
+              <path d="M7 8H29M7 12.5H29M7 17H29M7 21.5H29M7 26H29" stroke="#f0b45a" strokeOpacity="0.55" strokeWidth="1.3" strokeLinecap="round" />
+              <ellipse cx="15" cy="21.5" rx="4.6" ry="3.2" fill="#5ed6c5" transform="rotate(-18 15 21.5)" />
+              <path d="M19.2 20.5V9" stroke="#5ed6c5" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+            <span className="brand-name">Transposer</span>
+          </button>
+          <nav className="tabs" aria-label="Mode">
+            {TABS.map((tab) => (
+              <button key={tab.id} type="button" aria-current={view === tab.id ? 'page' : undefined} onClick={() => setView(tab.id)}>
+                {tab.icon}
+                <span>{t(tab.label)}</span>
+              </button>
+            ))}
+          </nav>
         </div>
-        <div className="header-actions">
-        <nav className="tabs" aria-label="Mode">
-          <button type="button" aria-pressed={view === 'notes'} onClick={() => setView('notes')}>
-            {t('tabNotes')}
-          </button>
-          <button type="button" aria-pressed={view === 'keys'} onClick={() => setView('keys')}>
-            {t('tabKeys')}
-          </button>
-          <button type="button" aria-pressed={view === 'melody'} onClick={() => setView('melody')}>
-            {t('tabMelody')}
-          </button>
-          <button type="button" aria-pressed={view === 'score'} onClick={() => setView('score')}>
-            {t('tabScore')}
-          </button>
-        </nav>
-        <div className="lang-toggle segmented compact" role="radiogroup" aria-label={t('language')}>
-          <label>
-            <input type="radio" name="lang" checked={lang === 'en'} onChange={() => setLang('en')} />
+        <div className="lang-switch" role="group" aria-label={t('language')}>
+          <button type="button" aria-pressed={lang === 'en'} onClick={() => setLang('en')}>
             EN
-          </label>
-          <label>
-            <input type="radio" name="lang" checked={lang === 'th'} onChange={() => setLang('th')} />
+          </button>
+          <button type="button" aria-pressed={lang === 'th'} onClick={() => setLang('th')}>
             ไทย
-          </label>
-        </div>
+          </button>
         </div>
       </header>
 
-      {view === 'score' ? (
-        <ScoreView />
+      {/* Notes and Melody draw their own <main> and docked piano; Keys and Score share this wrapper. */}
+      {view === 'notes' ? (
+        <NotesView />
       ) : view === 'melody' ? (
         <MelodyView />
-      ) : view === 'keys' ? (
-        <KeysView />
       ) : (
-      <div className="layout">
-        <aside className="card">
-          <div className="field">
-            <label htmlFor="instrument">{t('instrument')}</label>
-            <select id="instrument" value={instrumentId} onChange={(e) => setInstrumentId(e.target.value)}>
-              {Object.entries(groups).map(([family, list]) => (
-                <optgroup key={family} label={t(FAMILY_KEY[family] ?? 'famOther')}>
-                  {list.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {instrumentName(i)}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          </div>
-
-          <div className="field">
-            <span className="field-label" id="direction-label">{t('enteringLabel')}</span>
-            <div className="segmented" role="radiogroup" aria-labelledby="direction-label">
-              <label>
-                <input
-                  type="radio"
-                  name="direction"
-                  checked={direction === 'writtenToConcert'}
-                  onChange={() => setDirection('writtenToConcert')}
-                />
-                {t('written')}
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="direction"
-                  checked={direction === 'concertToWritten'}
-                  onChange={() => setDirection('concertToWritten')}
-                />
-                {t('concert')}
-              </label>
-            </div>
-            <p className="hint">
-              {t('writtenHint', { name: instrumentName(instrument) })}
-            </p>
-          </div>
-
-          <Piano onAdd={addPitch} />
-        </aside>
-
-        <section className="main">
-          <div className="card">
-            {entered.length === 0 ? (
-              <p className="empty">{t('noNotes')}</p>
-            ) : (
-              <div className="chips">
-                {entered.map((p, i) => (
-                  <span className="chip" key={`${p}-${i}`}>
-                    {p}
-                    <button type="button" onClick={() => removeAt(i)} aria-label={t('removeNote', { pitch: p })}>
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {warnings.length > 0 && (
-              <p className="warning" role="alert">
-                {t('outOfRange', {
-                  name: instrumentName(instrument),
-                  low: instrument.writtenRange?.low ?? '',
-                  high: instrument.writtenRange?.high ?? '',
-                  list: warnings.map((w) => `${w.pitch} (${t(w.status === 'below' ? 'below' : 'above')})`).join(', '),
-                })}
-              </p>
-            )}
-            {instrument.writtenRange === null && entered.length > 0 && (
-              <p className="muted">{t('noRangeDefined')}</p>
-            )}
-
-            {entered.length > 0 && (
-              <div className="entered-footer">
-                <span className="muted">{t('noteCount', { n: entered.length })}</span>
-                <button type="button" className="btn" onClick={() => setEntered([])}>
-                  {t('clearAll')}
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div className="score">
-            <div className="score-head">
-              <span className="badge written">{t('writtenBadge')}</span>
-              <span className="score-sub">{instrumentName(instrument)}</span>
-            </div>
-            <GrandStaff pitches={written} label={t('writtenStaffLabel', { list: written.join(', ') || t('none') })} />
-          </div>
-
-          <div className="score">
-            <div className="score-head">
-              <span className="badge concert">{t('concertBadge')}</span>
-              <span className="score-sub">{t('whatSounds')}</span>
-            </div>
-            <GrandStaff pitches={concert} label={t('concertStaffLabel', { list: concert.join(', ') || t('none') })} />
-          </div>
-        </section>
-      </div>
+        <main className="page">{view === 'keys' ? <KeysView /> : <ScoreView />}</main>
       )}
+
+      <footer className="credit">{t('credit')}</footer>
     </div>
   );
 }

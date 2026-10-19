@@ -40,3 +40,7 @@ The build uses relative paths, so it works both at a domain root and in a sub-fo
 - Instrument transpositions and ranges are a working table. Several rows are marked "unverified" in `src/core/instruments.ts`, and written ranges are approximate. Check them against a reference (Adler, Kennan, or a brass-band chart) before relying on range warnings.
 - Thai instrument names are working translations. A Thai musician should review them.
 - MXL files are read with the browser's `DecompressionStream`. Browsers without it (older Safari) need `.musicxml` instead.
+
+## Credits
+
+Designed by Yos Vaneesorn.
